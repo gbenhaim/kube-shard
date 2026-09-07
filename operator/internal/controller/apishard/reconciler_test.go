@@ -34,12 +34,14 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	apiregistrationv1 "k8s.io/kube-aggregator/pkg/apis/apiregistration/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	"github.com/konflux-ci/konflux-ci/operator/pkg/hashedconfigmap"
 	"github.com/konflux-ci/konflux-ci/operator/pkg/tracking"
 
 	kubeshardv1alpha1 "github.com/konflux-ci/kube-shard/operator/api/v1alpha1"
@@ -68,6 +70,22 @@ func newTrackingClient(shard *kubeshardv1alpha1.APIShard) *tracking.Client {
 		Component:         "apishard",
 		FieldManager:      fieldManager,
 	})
+}
+
+// otelHashedConfigMapName returns the content-hashed OTel Collector ConfigMap name
+// for the given shard and connection parameters.
+func otelHashedConfigMapName(shard *kubeshardv1alpha1.APIShard, params resources.OTelConnectionParams) string {
+	content := resources.BuildOTelCollectorConfig(shard, params)
+	return hashedconfigmap.BuildConfigMapName(resources.OTelCollectorConfigMapBaseName(shard), content)
+}
+
+// inClusterOTelApplyArgs returns connection params and the credential Secret
+// name used to apply the in-cluster PostgreSQL OTel collector.
+func inClusterOTelApplyArgs(shard *kubeshardv1alpha1.APIShard) (resources.OTelConnectionParams, string) {
+	params := resources.InClusterPostgreSQLConnectionParams(shard)
+	params.CACertSecretName = certs.PostgreSQLCASecretName(shard)
+	params.CACertSecretKey = "ca.crt"
+	return params, resources.PostgreSQLSecretName(shard)
 }
 
 var _ = Describe("reconcileRequestHeaderCA", func() {
@@ -2074,6 +2092,67 @@ var _ = Describe("reconcilePostgreSQLMetrics", func() {
 		Expect(cond).NotTo(BeNil())
 		Expect(cond.Status).To(Equal(metav1.ConditionFalse))
 		Expect(cond.Reason).To(Equal("MetricsCollectorHealthy"))
+	})
+
+	It("applies the hashed OTel ConfigMap with owner labels and tracks it", func() {
+		shard.Spec.Storage.Monitoring = &kubeshardv1alpha1.StorageMonitoringSpec{Enabled: true}
+		params, secretName := inClusterOTelApplyArgs(shard)
+		Expect(reconciler.applyOTelCollector(ctx, tc, shard, params, secretName)).To(Succeed())
+
+		cmName := otelHashedConfigMapName(shard, params)
+		cm := &corev1.ConfigMap{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{
+			Name: cmName, Namespace: ns.Name,
+		}, cm)).To(Succeed())
+		Expect(cm.Labels).To(HaveKeyWithValue(resources.LabelOTelConfig, "true"))
+		Expect(cm.Labels).To(HaveKeyWithValue(ownerLabelKey, shard.Name))
+		Expect(cm.Labels).To(HaveKeyWithValue(componentLabelKey, "apishard"))
+		Expect(tc.IsTracked(schema.GroupVersionKind{
+			Version: "v1", Kind: "ConfigMap",
+		}, ns.Name, cmName)).To(BeTrue())
+	})
+
+	It("does not change hashed OTel ConfigMap labels on a second identical apply", func() {
+		shard.Spec.Storage.Monitoring = &kubeshardv1alpha1.StorageMonitoringSpec{Enabled: true}
+		params, secretName := inClusterOTelApplyArgs(shard)
+		Expect(reconciler.applyOTelCollector(ctx, tc, shard, params, secretName)).To(Succeed())
+
+		cmName := otelHashedConfigMapName(shard, params)
+		cm := &corev1.ConfigMap{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{
+			Name: cmName, Namespace: ns.Name,
+		}, cm)).To(Succeed())
+		firstLabels := cm.Labels
+
+		tc = newTrackingClient(shard)
+		Expect(reconciler.applyOTelCollector(ctx, tc, shard, params, secretName)).To(Succeed())
+		Expect(k8sClient.Get(ctx, types.NamespacedName{
+			Name: cmName, Namespace: ns.Name,
+		}, cm)).To(Succeed())
+		Expect(cm.Labels).To(Equal(firstLabels))
+	})
+
+	It("orphans the previous hashed OTel ConfigMap when collector config changes", func() {
+		shard.Spec.Storage.Monitoring = &kubeshardv1alpha1.StorageMonitoringSpec{Enabled: true}
+		params, secretName := inClusterOTelApplyArgs(shard)
+		Expect(reconciler.applyOTelCollector(ctx, tc, shard, params, secretName)).To(Succeed())
+		firstName := otelHashedConfigMapName(shard, params)
+
+		shard.Spec.Storage.Monitoring.CollectionInterval = "15s"
+		tc = newTrackingClient(shard)
+		Expect(reconciler.applyOTelCollector(ctx, tc, shard, params, secretName)).To(Succeed())
+		secondName := otelHashedConfigMapName(shard, params)
+		Expect(secondName).NotTo(Equal(firstName))
+
+		Expect(tc.CleanupOrphans(ctx, ownerLabelKey, shard.Name, managedGVKs)).To(Succeed())
+
+		err := k8sClient.Get(ctx, types.NamespacedName{
+			Name: firstName, Namespace: ns.Name,
+		}, &corev1.ConfigMap{})
+		Expect(apierrors.IsNotFound(err)).To(BeTrue())
+		Expect(k8sClient.Get(ctx, types.NamespacedName{
+			Name: secondName, Namespace: ns.Name,
+		}, &corev1.ConfigMap{})).To(Succeed())
 	})
 })
 

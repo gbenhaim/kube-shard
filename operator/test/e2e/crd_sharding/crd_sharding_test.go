@@ -135,14 +135,7 @@ spec:
 		_, err = logger.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to create APIShard")
 
-		By("waiting for APIShard to become Ready")
-		Eventually(func(g Gomega) {
-			cmd := exec.Command("kubectl", "get", "apishard", shardName,
-				"-o", "jsonpath={.status.phase}")
-			output, err := logger.Run(cmd)
-			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(output).To(Equal("Ready"))
-		}, 5*time.Minute, 10*time.Second).Should(Succeed())
+		utils.WaitForAPIShardReady(shardName, 5*time.Minute)
 
 		By("installing the dummy CRD on the primary (triggers operator CRD sync)")
 		cmd = exec.Command("kubectl", "apply", "-f", filepath.Join(testdataDir, "dummy_crd.yaml"))

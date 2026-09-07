@@ -63,6 +63,29 @@ func OTelCollectorConfigMapBaseName(shard *kubeshardv1alpha1.APIShard) string {
 	return fmt.Sprintf("%s-postgresql-metrics-config", shard.Name)
 }
 
+// BuildOTelCollectorConfigMap constructs the OTel Collector ConfigMap with the
+// given hashed name and config.yaml content. The otel-config label is set so
+// hashed ConfigMaps can be listed; owner and component labels are added by
+// tracking.ApplyOwned.
+func BuildOTelCollectorConfigMap(shard *kubeshardv1alpha1.APIShard, name, content string) *corev1.ConfigMap {
+	return &corev1.ConfigMap{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "v1",
+			Kind:       "ConfigMap",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: shard.Spec.TargetNamespace,
+			Labels: map[string]string{
+				LabelOTelConfig: "true",
+			},
+		},
+		Data: map[string]string{
+			"config.yaml": content,
+		},
+	}
+}
+
 // OTelConnectionParams holds parsed PostgreSQL connection parameters
 // used to generate the OTel Collector configuration.
 type OTelConnectionParams struct {

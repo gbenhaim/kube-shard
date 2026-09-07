@@ -126,20 +126,7 @@ spec:
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to create APIShard")
 
-		By("waiting for APIShard to become Ready")
-		Eventually(func(g Gomega) {
-			cmd := exec.Command("kubectl", "get", "apishard", shardName,
-				"-o", "jsonpath={.status.phase}")
-			output, err := utils.Run(cmd)
-			g.Expect(err).NotTo(HaveOccurred())
-			if output != "Ready" {
-				condCmd := exec.Command("kubectl", "get", "apishard", shardName,
-					"-o", "jsonpath={.status.conditions}")
-				condOut, _ := utils.Run(condCmd)
-				g.Expect(output).To(Equal("Ready"),
-					"phase=%s conditions=%s", output, condOut)
-			}
-		}, 5*time.Minute, 10*time.Second).Should(Succeed())
+		utils.WaitForAPIShardReady(shardName, 5*time.Minute)
 
 		By("creating the client namespace for cross-namespace scraping tests")
 		cmd = exec.Command("kubectl", "create", "namespace", clientNamespace)
@@ -604,20 +591,7 @@ spec:
 		_, err := utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to create PostgreSQL APIShard")
 
-		By("waiting for APIShard to become Ready")
-		Eventually(func(g Gomega) {
-			cmd := exec.Command("kubectl", "get", "apishard", pgShardName,
-				"-o", "jsonpath={.status.phase}")
-			output, err := utils.Run(cmd)
-			g.Expect(err).NotTo(HaveOccurred())
-			if output != "Ready" {
-				condCmd := exec.Command("kubectl", "get", "apishard", pgShardName,
-					"-o", "jsonpath={.status.conditions}")
-				condOut, _ := utils.Run(condCmd)
-				g.Expect(output).To(Equal("Ready"),
-					"phase=%s conditions=%s", output, condOut)
-			}
-		}, 8*time.Minute, 10*time.Second).Should(Succeed())
+		utils.WaitForAPIShardReady(pgShardName, 8*time.Minute)
 
 		By("waiting for OTel Collector deployment to be ready")
 		cmd = exec.Command("kubectl", "get", "deployment",

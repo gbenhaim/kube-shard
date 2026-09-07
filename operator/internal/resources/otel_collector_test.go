@@ -202,6 +202,22 @@ func TestBuildOTelCollectorService(t *testing.T) {
 	g.Expect(svc.Spec.Selector).To(HaveKeyWithValue(LabelName, NameOTelCollector))
 }
 
+func TestBuildOTelCollectorConfigMap(t *testing.T) {
+	g := NewGomegaWithT(t)
+	shard := newTestShard()
+	content := "receivers: {}"
+	name := "test-shard-postgresql-metrics-config-abc123"
+
+	cm := BuildOTelCollectorConfigMap(shard, name, content)
+
+	g.Expect(cm.APIVersion).To(Equal("v1"))
+	g.Expect(cm.Kind).To(Equal("ConfigMap"))
+	g.Expect(cm.Name).To(Equal(name))
+	g.Expect(cm.Namespace).To(Equal("test-ns"))
+	g.Expect(cm.Labels).To(HaveKeyWithValue(LabelOTelConfig, "true"))
+	g.Expect(cm.Data).To(HaveKeyWithValue("config.yaml", content))
+}
+
 func TestBuildPostgreSQLInitConfigMap(t *testing.T) {
 	g := NewGomegaWithT(t)
 	shard := newTestShard()
