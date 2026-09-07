@@ -18,23 +18,27 @@ package utils
 
 import (
 	"os/exec"
-	"strconv"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2" //nolint:staticcheck,revive
-	. "github.com/onsi/gomega"
+	. "github.com/onsi/gomega"    //nolint:staticcheck,revive
 )
 
 const (
 	// settleWindow is how long to observe a Ready APIShard before declaring
-	// the reconciler idle. A hot loop produces hundreds of resourceVersion
-	// bumps in this window; residual watches produce a handful.
+	// the reconciler idle. A hot loop produces a resourceVersion change on
+	// nearly every poll; residual watches produce a handful.
 	settleWindow = 30 * time.Second
 
-	// maxResourceVersionDelta is the maximum metadata.resourceVersion increase
-	// allowed during settleWindow. Every successful reconcile writes APIShard
-	// status, so a tight loop far exceeds this bound.
-	maxResourceVersionDelta int64 = 8
+	// settlePollInterval is how often to re-read this APIShard's
+	// metadata.resourceVersion while waiting for the reconciler to go idle.
+	settlePollInterval = time.Second
+
+	// maxResourceVersionChanges is the maximum number of times this
+	// APIShard's resourceVersion may change during settleWindow. Resource
+	// versions are opaque, so we count object-specific updates rather than
+	// subtracting revision numbers.
+	maxResourceVersionChanges = 8
 )
 
 // WaitForAPIShardReady waits until the named APIShard reports phase Ready,
@@ -59,16 +63,25 @@ func WaitForAPIShardReady(name string, timeout time.Duration) {
 }
 
 // ExpectAPIShardSettled asserts that a Ready APIShard is not being hot-looped
-// by the operator. It samples metadata.resourceVersion, waits settleWindow,
-// and requires the integer delta to stay below maxResourceVersionDelta.
+// by the operator. It polls this object's metadata.resourceVersion during
+// settleWindow and requires the number of observed changes to stay below
+// maxResourceVersionChanges.
 func ExpectAPIShardSettled(name string) {
 	By("asserting APIShard reconciler has settled")
 
 	startRV := apiShardResourceVersion(name)
-	startN, err := strconv.ParseInt(startRV, 10, 64)
-	Expect(err).NotTo(HaveOccurred(), "parsing start resourceVersion %q", startRV)
+	lastRV := startRV
+	changes := 0
+	deadline := time.Now().Add(settleWindow)
 
-	time.Sleep(settleWindow)
+	for time.Now().Before(deadline) {
+		time.Sleep(settlePollInterval)
+		rv := apiShardResourceVersion(name)
+		if rv != lastRV {
+			changes++
+			lastRV = rv
+		}
+	}
 
 	cmd := exec.Command("kubectl", "get", "apishard", name,
 		"-o", "jsonpath={.status.phase}")
@@ -76,14 +89,9 @@ func ExpectAPIShardSettled(name string) {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(phase).To(Equal("Ready"), "APIShard %s left Ready during settle window", name)
 
-	endRV := apiShardResourceVersion(name)
-	endN, err := strconv.ParseInt(endRV, 10, 64)
-	Expect(err).NotTo(HaveOccurred(), "parsing end resourceVersion %q", endRV)
-
-	delta := endN - startN
-	Expect(delta).To(BeNumerically("<", maxResourceVersionDelta),
-		"APIShard %s resourceVersion moved from %s to %s in %s (delta %d); reconciler is hot-looping",
-		name, startRV, endRV, settleWindow, delta)
+	Expect(changes).To(BeNumerically("<", maxResourceVersionChanges),
+		"APIShard %s resourceVersion changed %d times in %s (start %s, end %s); reconciler is hot-looping",
+		name, changes, settleWindow, startRV, lastRV)
 }
 
 // apiShardResourceVersion returns metadata.resourceVersion for the named APIShard.

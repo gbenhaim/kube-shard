@@ -578,7 +578,7 @@ func (r *Reconciler) reconcilePostgreSQLMetrics(
 	case kubeshardv1alpha1.StorageTypeInClusterPostgreSQL:
 		params := resources.InClusterPostgreSQLConnectionParams(shard)
 		params.CACertSecretName = certs.PostgreSQLCASecretName(shard)
-		params.CACertSecretKey = "ca.crt"
+		params.CACertSecretKey = resources.CACertKey
 		credentialSecret := resources.PostgreSQLSecretName(shard)
 		err = r.applyOTelCollector(ctx, tc, shard, params, credentialSecret)
 
@@ -1130,7 +1130,7 @@ func (r *Reconciler) reconcileAPIServices(ctx context.Context, shard *kubeshardv
 		return fmt.Errorf("reading TLS secret %s: %w", secretName, err)
 	}
 
-	caBundle := secret.Data["ca.crt"]
+	caBundle := secret.Data[resources.CACertKey]
 
 	result, err := aggregation.Reconcile(ctx, r.Client, r.Scheme, shard, caBundle, shard.Status.RegisteredAPIServices, fieldManager)
 	if err != nil {
@@ -1157,7 +1157,7 @@ func (r *Reconciler) reconcileAdminKubeconfig(ctx context.Context, tc *tracking.
 		}
 		return fmt.Errorf("reading PKI secret: %w", err)
 	}
-	caData := pkiSecret.Data["ca.crt"]
+	caData := pkiSecret.Data[resources.CACertKey]
 	if len(caData) == 0 {
 		return nil
 	}
@@ -1390,7 +1390,7 @@ func (r *Reconciler) syncCRDsToSecondary(ctx context.Context, shard *kubeshardv1
 
 	secondaryClient, err := r.ClientProvider.GetOrCreate(shard.Name, secondary.ClientConfig{
 		Host:       endpoint,
-		CACert:     pkiSecret.Data["ca.crt"],
+		CACert:     pkiSecret.Data[resources.CACertKey],
 		ClientCert: adminSecret.Data["tls.crt"],
 		ClientKey:  adminSecret.Data["tls.key"],
 	})
@@ -1497,7 +1497,7 @@ func (r *Reconciler) verifySecondaryAuth(ctx context.Context, shard *kubeshardv1
 
 	cfg := secondary.ClientConfig{
 		Host:       resources.SecondaryEndpoint(shard),
-		CACert:     pkiSecret.Data["ca.crt"],
+		CACert:     pkiSecret.Data[resources.CACertKey],
 		ClientCert: adminSecret.Data["tls.crt"],
 		ClientKey:  adminSecret.Data["tls.key"],
 	}

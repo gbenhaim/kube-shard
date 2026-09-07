@@ -84,7 +84,7 @@ func otelHashedConfigMapName(shard *kubeshardv1alpha1.APIShard, params resources
 func inClusterOTelApplyArgs(shard *kubeshardv1alpha1.APIShard) (resources.OTelConnectionParams, string) {
 	params := resources.InClusterPostgreSQLConnectionParams(shard)
 	params.CACertSecretName = certs.PostgreSQLCASecretName(shard)
-	params.CACertSecretKey = "ca.crt"
+	params.CACertSecretKey = resources.CACertKey
 	return params, resources.PostgreSQLSecretName(shard)
 }
 
@@ -1103,9 +1103,9 @@ var _ = Describe("reconcileAdminKubeconfig", func() {
 				Namespace: shard.Spec.TargetNamespace,
 			},
 			Data: map[string][]byte{
-				"ca.crt":  {},
-				"tls.crt": []byte("cert"),
-				"tls.key": []byte("key"),
+				resources.CACertKey: {},
+				"tls.crt":           []byte("cert"),
+				"tls.key":           []byte("key"),
 			},
 		}
 		Expect(k8sClient.Create(ctx, pkiSecret)).To(Succeed())
@@ -1126,7 +1126,7 @@ var _ = Describe("reconcileAdminKubeconfig", func() {
 				Namespace: shard.Spec.TargetNamespace,
 			},
 			Data: map[string][]byte{
-				"ca.crt": []byte("fake-ca"),
+				resources.CACertKey: []byte("fake-ca"),
 			},
 		}
 		Expect(k8sClient.Create(ctx, pkiSecret)).To(Succeed())
@@ -1147,7 +1147,7 @@ var _ = Describe("reconcileAdminKubeconfig", func() {
 				Namespace: shard.Spec.TargetNamespace,
 			},
 			Data: map[string][]byte{
-				"ca.crt": []byte("fake-ca-cert"),
+				resources.CACertKey: []byte("fake-ca-cert"),
 			},
 		}
 		Expect(k8sClient.Create(ctx, pkiSecret)).To(Succeed())
@@ -2640,9 +2640,9 @@ var _ = Describe("syncCRDsToSecondary", func() {
 				Namespace: shardNS,
 			},
 			Data: map[string][]byte{
-				"ca.crt":  []byte("fake-ca-cert"),
-				"tls.crt": []byte("fake-tls-cert"),
-				"tls.key": []byte("fake-tls-key"),
+				resources.CACertKey: []byte("fake-ca-cert"),
+				"tls.crt":           []byte("fake-tls-cert"),
+				"tls.key":           []byte("fake-tls-key"),
 			},
 		}
 		Expect(k8sClient.Create(ctx, pkiSecret)).To(Succeed())

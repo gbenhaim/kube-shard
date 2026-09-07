@@ -202,6 +202,8 @@ func TestBuildOTelCollectorService(t *testing.T) {
 	g.Expect(svc.Spec.Selector).To(HaveKeyWithValue(LabelName, NameOTelCollector))
 }
 
+// TestBuildOTelCollectorConfigMap verifies the builder sets type metadata,
+// the hashed name, target namespace, otel-config label, and config.yaml data.
 func TestBuildOTelCollectorConfigMap(t *testing.T) {
 	g := NewGomegaWithT(t)
 	shard := newTestShard()
