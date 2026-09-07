@@ -142,6 +142,8 @@ spec:
 			g.Expect(output).To(Equal("Ready"))
 		}, 5*time.Minute, 10*time.Second).Should(Succeed())
 
+		utils.ExpectAPIShardSettled(shardName)
+
 		By("creating the workload namespace with sync label")
 		cmd = exec.Command("kubectl", "create", "ns", gadgetNamespace)
 		_, err = logger.Run(cmd)

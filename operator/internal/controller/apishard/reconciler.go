@@ -578,7 +578,7 @@ func (r *Reconciler) reconcilePostgreSQLMetrics(
 	case kubeshardv1alpha1.StorageTypeInClusterPostgreSQL:
 		params := resources.InClusterPostgreSQLConnectionParams(shard)
 		params.CACertSecretName = certs.PostgreSQLCASecretName(shard)
-		params.CACertSecretKey = "ca.crt"
+		params.CACertSecretKey = resources.CACertKey
 		credentialSecret := resources.PostgreSQLSecretName(shard)
 		err = r.applyOTelCollector(ctx, tc, shard, params, credentialSecret)
 
@@ -642,7 +642,8 @@ func (r *Reconciler) reconcilePostgreSQLMetrics(
 }
 
 // applyOTelCollector creates or updates the OTel Collector ConfigMap (with content hash),
-// Deployment, and Service. Uses hashedconfigmap so pods automatically restart on config change.
+// Deployment, and Service. The ConfigMap name includes a content hash so pods
+// automatically restart when the collector config changes.
 func (r *Reconciler) applyOTelCollector(
 	ctx context.Context,
 	tc *tracking.Client,
@@ -652,31 +653,13 @@ func (r *Reconciler) applyOTelCollector(
 ) error {
 	configContent := resources.BuildOTelCollectorConfig(shard, params)
 	baseName := resources.OTelCollectorConfigMapBaseName(shard)
-
-	hcm := hashedconfigmap.New(
-		r.Client,
-		r.Scheme,
-		baseName,
-		shard.Spec.TargetNamespace,
-		"config.yaml",
-		resources.LabelOTelConfig,
-		fieldManager,
-	)
-
-	result, err := hcm.Apply(ctx, configContent, shard)
-	if err != nil {
+	cmName := hashedconfigmap.BuildConfigMapName(baseName, configContent)
+	cm := resources.BuildOTelCollectorConfigMap(shard, cmName, configContent)
+	if err := tc.ApplyOwned(ctx, cm); err != nil {
 		return fmt.Errorf("otel collector configmap: %w", err)
 	}
 
-	// Register the hashed ConfigMap with the tracking client so that
-	// CleanupOrphans deletes it automatically when monitoring is disabled
-	// (the ConfigMap won't be tracked that cycle → treated as orphan).
-	result.ConfigMap.SetManagedFields(nil)
-	if err := tc.ApplyOwned(ctx, result.ConfigMap); err != nil {
-		return fmt.Errorf("otel collector configmap tracking: %w", err)
-	}
-
-	deploy := resources.BuildOTelCollectorDeployment(shard, credentialSecretName, result.ConfigMapName, params)
+	deploy := resources.BuildOTelCollectorDeployment(shard, credentialSecretName, cmName, params)
 	if err := tc.ApplyOwned(ctx, deploy); err != nil {
 		return fmt.Errorf("otel collector deployment: %w", err)
 	}
@@ -1147,7 +1130,7 @@ func (r *Reconciler) reconcileAPIServices(ctx context.Context, shard *kubeshardv
 		return fmt.Errorf("reading TLS secret %s: %w", secretName, err)
 	}
 
-	caBundle := secret.Data["ca.crt"]
+	caBundle := secret.Data[resources.CACertKey]
 
 	result, err := aggregation.Reconcile(ctx, r.Client, r.Scheme, shard, caBundle, shard.Status.RegisteredAPIServices, fieldManager)
 	if err != nil {
@@ -1174,7 +1157,7 @@ func (r *Reconciler) reconcileAdminKubeconfig(ctx context.Context, tc *tracking.
 		}
 		return fmt.Errorf("reading PKI secret: %w", err)
 	}
-	caData := pkiSecret.Data["ca.crt"]
+	caData := pkiSecret.Data[resources.CACertKey]
 	if len(caData) == 0 {
 		return nil
 	}
@@ -1407,7 +1390,7 @@ func (r *Reconciler) syncCRDsToSecondary(ctx context.Context, shard *kubeshardv1
 
 	secondaryClient, err := r.ClientProvider.GetOrCreate(shard.Name, secondary.ClientConfig{
 		Host:       endpoint,
-		CACert:     pkiSecret.Data["ca.crt"],
+		CACert:     pkiSecret.Data[resources.CACertKey],
 		ClientCert: adminSecret.Data["tls.crt"],
 		ClientKey:  adminSecret.Data["tls.key"],
 	})
@@ -1514,7 +1497,7 @@ func (r *Reconciler) verifySecondaryAuth(ctx context.Context, shard *kubeshardv1
 
 	cfg := secondary.ClientConfig{
 		Host:       resources.SecondaryEndpoint(shard),
-		CACert:     pkiSecret.Data["ca.crt"],
+		CACert:     pkiSecret.Data[resources.CACertKey],
 		ClientCert: adminSecret.Data["tls.crt"],
 		ClientKey:  adminSecret.Data["tls.key"],
 	}
