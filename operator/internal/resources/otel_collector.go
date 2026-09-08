@@ -140,13 +140,13 @@ receivers:
     queries:
       - sql: |
           CREATE EXTENSION IF NOT EXISTS pgstattuple;
-          SET statement_timeout = '30s';
+          SET statement_timeout = '60s';
           SELECT
-            coalesce(sum(dead_tuple_len + free_space), 0)::bigint AS reclaimable_bytes,
-            coalesce(sum(tuple_len), 0)::bigint AS live_bytes,
+            coalesce(sum(dead_tuple_len + approx_free_space), 0)::bigint AS reclaimable_bytes,
+            coalesce(sum(approx_tuple_len), 0)::bigint AS live_bytes,
             coalesce(sum(table_len), 0)::bigint AS total_table_bytes
           FROM (
-            SELECT (pgstattuple(oid)).*
+            SELECT (pgstattuple_approx(oid)).*
             FROM pg_class
             WHERE relkind IN ('r', 't')
               AND relnamespace NOT IN (
@@ -159,12 +159,12 @@ receivers:
             value_column: reclaimable_bytes
             data_type: gauge
             value_type: int
-            description: "Bytes reclaimable by VACUUM FULL across all user tables (dead tuples + free space)"
+            description: "Approximate bytes reclaimable by VACUUM FULL across all user tables (dead tuples + free space)"
           - metric_name: postgresql.tables_live_bytes
             value_column: live_bytes
             data_type: gauge
             value_type: int
-            description: "Bytes used by live tuples across all user tables"
+            description: "Approximate bytes used by live tuples across all user tables"
           - metric_name: postgresql.tables_size_bytes
             value_column: total_table_bytes
             data_type: gauge
