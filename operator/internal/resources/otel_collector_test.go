@@ -38,7 +38,7 @@ func TestBuildOTelCollectorConfig_InCluster_DefaultIntervals(t *testing.T) {
 	g.Expect(config).To(ContainSubstring("collection_interval: 30s"))
 	g.Expect(config).To(ContainSubstring("collection_interval: 5m"))
 	g.Expect(config).To(ContainSubstring("test-shard-postgresql.test-ns.svc"))
-	g.Expect(config).To(ContainSubstring("pgstattuple"))
+	g.Expect(config).To(ContainSubstring("pgstattuple_approx"))
 	g.Expect(config).To(ContainSubstring("tables_reclaimable_bytes"))
 	g.Expect(config).To(ContainSubstring("tables_live_bytes"))
 	g.Expect(config).To(ContainSubstring("tables_size_bytes"))
